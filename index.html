@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Статус VPN</title>
+<style>
+  :root{ --bg:#0f1420; --card:#1a2230; --ink:#eaf0f7; --mut:#9fb0c3; --line:#2a3648;
+         --ok:#2ecc71; --warn:#f1c40f; --bad:#e74c3c; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       min-height:100vh;display:flex;align-items:center;justify-content:center;padding:18px}
+  .card{width:100%;max-width:480px;background:var(--card);border:1px solid var(--line);
+        border-radius:18px;padding:26px 22px}
+  .top{text-align:center;margin-bottom:20px}
+  .dot{width:64px;height:64px;border-radius:50%;margin:0 auto 14px;background:#43506a}
+  .dot.ok{background:var(--ok);box-shadow:0 0 24px rgba(46,204,113,.45)}
+  .dot.warn{background:var(--warn);box-shadow:0 0 24px rgba(241,196,15,.45)}
+  .dot.bad{background:var(--bad);box-shadow:0 0 24px rgba(231,76,60,.45)}
+  h1{font-size:22px;margin:0 0 8px}
+  .desc{color:var(--mut);font-size:14.5px;line-height:1.5;margin:0}
+  .rows{border-top:1px solid var(--line);margin-top:20px;padding-top:6px}
+  .row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #202a3a;font-size:15px}
+  .row:last-child{border-bottom:0}
+  .row .lbl{flex:1}
+  .row .val{font-size:14px;color:var(--mut)}
+  .sdot{width:12px;height:12px;border-radius:50%;background:#43506a;flex:0 0 auto}
+  .sdot.ok{background:var(--ok)} .sdot.bad{background:var(--bad)} .sdot.warn{background:var(--warn)}
+  .meta{margin-top:16px;font-size:12.5px;color:var(--mut);display:flex;justify-content:space-between;align-items:center}
+  .btn{background:#22304a;color:#cfe0f2;border:1px solid var(--line);border-radius:8px;
+       padding:6px 12px;font-size:12.5px;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="top">
+    <div class="dot" id="dot"></div>
+    <h1 id="title">Проверяю…</h1>
+    <p class="desc" id="desc"></p>
+  </div>
+  <div class="rows">
+    <div class="row"><span class="sdot" id="s-in"></span><span class="lbl">Приём подключений</span><span class="val" id="v-in">—</span></div>
+    <div class="row"><span class="sdot" id="s-out"></span><span class="lbl">Выход в интернет</span><span class="val" id="v-out">—</span></div>
+    <div class="row"><span class="sdot" id="s-cert"></span><span class="lbl">Сертификат сервера</span><span class="val" id="v-cert">—</span></div>
+  </div>
+  <div class="meta">
+    <span id="checked">—</span>
+    <button class="btn" id="refresh">Обновить</button>
+  </div>
+</div>
+
+<script>
+var STATUS_URL = 'https://raw.githubusercontent.com/h8mkj96hfz-a11y/vpn-status/main/status.json';
+
+function ago(iso){
+  if(!iso) return "нет данных";
+  var t=new Date(iso).getTime(); if(isNaN(t)) return "нет данных";
+  var m=Math.round((Date.now()-t)/60000);
+  if(m<1) return "меньше минуты назад";
+  if(m<60) return m+" мин назад";
+  return Math.round(m/60)+" ч назад";
+}
+function stale(iso){ if(!iso) return true; var t=new Date(iso).getTime(); return isNaN(t)||(Date.now()-t)>20*60000; }
+function setSdot(id, ok){ document.getElementById(id).className='sdot '+(ok?'ok':'bad'); }
+function $(id){ return document.getElementById(id); }
+
+function render(s){
+  var isStale = !s || stale(s.ts);
+  // компоненты
+  if(s){
+    var inUp=s["in"]==="up", outUp=s["out"]==="up";
+    setSdot('s-in', inUp); $('v-in').textContent = inUp?'работает':'сбой';
+    setSdot('s-out', outUp); $('v-out').textContent = outUp?'работает':'сбой';
+    var cd = (typeof s.cert_days==="number")?s.cert_days:-1;
+    var cel=$('s-cert');
+    if(cd<0){ cel.className='sdot warn'; $('v-cert').textContent='нет данных'; }
+    else if(cd<=1){ cel.className='sdot warn'; $('v-cert').textContent=cd+' дн (обновляется)'; }
+    else { cel.className='sdot ok'; $('v-cert').textContent=cd+' дн'; }
+  }
+  // общий вердикт
+  var v = s ? s.verdict : null;
+  var dot=$('dot'), title=$('title'), desc=$('desc');
+  if(isStale || v==="unknown"){
+    dot.className='dot warn'; title.textContent='Нет свежих данных';
+    desc.textContent='Проверка давно не обновлялась. Возможно, проблема на нашей стороне — напиши админу.';
+  } else if(v==="ok"){
+    dot.className='dot ok'; title.textContent='VPN работает';
+    desc.textContent='Сервис в норме. Если у тебя не подключается — переподключи профиль Ultima, попробуй другую сеть или сообщи админу.';
+  } else if(v==="down"){
+    dot.className='dot bad'; title.textContent='Сервер недоступен';
+    desc.textContent='Сервер сейчас не отвечает. Мы это видим и чиним. Попробуй позже.';
+  } else { // issue
+    dot.className='dot warn'; title.textContent='Временный сбой';
+    var inUp = s && s["in"]==="up";
+    desc.textContent = inUp
+      ? 'Есть проблема с выходом в интернет на нашей стороне. Мы её видим и чиним.'
+      : 'Есть проблема на входе сервера. Мы её видим и чиним. Скоро заработает.';
+  }
+  $('checked').textContent = (s&&s.ts) ? ('проверено '+ago(s.ts)) : 'нет данных о проверке';
+}
+
+function load(){
+  fetch(STATUS_URL+'?cb='+Date.now(), {cache:'no-store'})
+    .then(function(r){ return r.json(); }).then(render)
+    .catch(function(){
+      $('dot').className='dot warn'; $('title').textContent='Не удалось получить статус';
+      $('desc').textContent='Проверь интернет и обнови страницу.';
+    });
+}
+$('refresh').onclick=load;
+load();
+setInterval(load, 45000);
+</script>
+</body>
+</html>
